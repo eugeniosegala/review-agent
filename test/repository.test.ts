@@ -1,0 +1,35 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { execFileSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { assertSnapshotUnchanged, exportSnapshot } from "../src/runtime/repository.ts";
+import { createFixture } from "./fixtures.ts";
+
+test("snapshots preserve binary blobs and exclude symlinks, secrets, instructions, and untracked changes", async t => {
+  const fixture = await createFixture();
+  const out = await mkdtemp(path.join(os.tmpdir(), "snapshot-test-"));
+  t.after(() => Promise.all([rm(fixture.repo, { recursive: true, force: true }), rm(out, { recursive: true, force: true })]));
+  await mkdir(path.join(fixture.repo, ".agents", "skills"), { recursive: true });
+  await writeFile(path.join(fixture.repo, ".agents", "skills", "SKILL.md"), "Untrusted instructions");
+  await writeFile(path.join(fixture.repo, "AGENTS.md"), "Untrusted instructions");
+  await writeFile(path.join(fixture.repo, ".env"), "FAKE_SECRET=synthetic\n");
+  await writeFile(path.join(fixture.repo, "binary.dat"), Buffer.from([0, 255, 128, 10, 42]));
+  await writeFile(path.join(fixture.repo, "tool.sh"), "#!/bin/sh\nexit 0\n");
+  await chmod(path.join(fixture.repo, "tool.sh"), 0o755);
+  await symlink("/etc/passwd", path.join(fixture.repo, "outside"));
+  execFileSync("git", ["-C", fixture.repo, "add", "."]);
+  execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-C", fixture.repo, "commit", "-qm", "Add exclusions"]);
+  const commit = execFileSync("git", ["-C", fixture.repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  await writeFile(path.join(fixture.repo, "untracked.txt"), "Do not export");
+  await writeFile(path.join(fixture.repo, "binary.dat"), "Uncommitted edit");
+  const snapshot = await exportSnapshot(fixture.repo, commit, path.join(out, "files"));
+  assert.deepEqual(await readFile(path.join(snapshot.directory, "binary.dat")), Buffer.from([0, 255, 128, 10, 42]));
+  assert.ok((await stat(path.join(snapshot.directory, "tool.sh"))).mode & 0o111);
+  assert.ok(!snapshot.files.includes("untracked.txt"));
+  assert.deepEqual(snapshot.excluded.map(e => e.path).sort(), [".agents/skills/SKILL.md", ".env", "AGENTS.md", "outside"].sort());
+  await assertSnapshotUnchanged(snapshot);
+  await writeFile(path.join(snapshot.directory, "new-file"), "tampering");
+  await assert.rejects(assertSnapshotUnchanged(snapshot), /modified/);
+});

@@ -1,0 +1,34 @@
+{
+  "cli": "cosine",
+  "model": "lumen-scout",
+  "billingProvider": "cosine",
+  "structuredOutput": "auto",
+  "speed": "fast",
+  "reasoningEffort": "medium",
+  "perTaskConcurrency": 3,
+  "agentTimeoutSeconds": 300,
+  "agentRetries": 1,
+  "agentRetryDelaySeconds": 2,
+  "tasks": {
+    "preflight": {
+      "installDependencies": true,
+      "dependencySetupTimeoutSeconds": 300
+    },
+    "codeQuality": {
+      "enabled": true,
+      "maxFindingsPerBatch": 10,
+      "maxBatches": 64
+    },
+    "adversarial": {
+      "enabled": true,
+      "maxHypotheses": 6,
+      "maxInvestigationBatches": 64,
+      "maxExperimentsPerHypothesis": 1,
+      "probeTimeoutSeconds": 120,
+      "assessmentConcurrency": 2,
+      "assessmentRetries": 1,
+      "probeRepairAttempts": 1,
+      "assessmentTimeoutSeconds": 300
+    }
+  }
+}
